@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Risco 3D do Laboratório Delta</title>
+    <!-- Inclui Tailwind CSS para estilização e Three.js para 3D -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden; /* Evita barras de rolagem */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f4f8;
+        }
+
+        #scene-container {
+            width: 100%;
+            height: calc(100vh - 100px); /* Ajusta a altura para deixar espaço para o título */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            background-color: #e2e8f0; /* Cor de fundo do canvas */
+            border-radius: 12px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .title-bar {
+            width: 100%;
+            padding: 15px;
+            background-color: #334155;
+            color: white;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        /* Estilo para os rótulos dos cômodos */
+        #labels-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Permite que cliques passem para o canvas */
+        }
+
+        .area-label {
+            position: absolute;
+            color: #1a202c;
+            font-size: 0.7rem; /* Tamanho da fonte para o contexto 3D */
+            font-weight: 600;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 4px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            transform: translate(-50%, -50%); /* Centraliza o rótulo */
+            pointer-events: none; /* Permite que cliques passem para o canvas */
+            z-index: 20; /* Acima de outros elementos */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        /* Modal Styles (reutilizados do 2D) */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 600px;
+            transform: translateY(-20px);
+            opacity: 0;
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            position: relative;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-overlay.show .modal-content {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .modal-close-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #475569;
+            transition: color 0.2s ease-in-out;
+        }
+
+        .modal-close-button:hover {
+            color: #1a202c;
+        }
+
+        .modal-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #334155;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .modal-description {
+            font-size: 1rem;
+            color: #475569;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .generate-button {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            color: white;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: block;
+            width: fit-content;
+            margin: 0 auto 20px auto;
+            border: none;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .generate-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .loading-indicator {
+            display: none;
+            text-align: center;
+            color: #64748b;
+            font-style: italic;
+            margin-top: 15px;
+        }
+
+        .recommendations-output {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            color: #334155;
+            line-height: 1.7;
+            white-space: pre-wrap; /* Preserves whitespace and line breaks */
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        @media (max-width: 768px) {
+            .title-bar {
+                font-size: 1.2rem;
+                padding: 10px;
+            }
+            #scene-container {
+                height: calc(100vh - 80px);
+            }
+            .modal-content {
+                padding: 20px;
+            }
+            .modal-title {
+                font-size: 1.5rem;
+            }
+            .modal-description {
+                font-size: 0.9rem;
+            }
+            .generate-button {
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title-bar">Mapa de Risco 3D do Laboratório Delta</div>
+    <div id="scene-container"></div>
+    <div id="labels-container"></div> <!-- Novo contêiner para os rótulos HTML -->
+
+    <!-- Modal para Recomendações de Segurança -->
+    <div id="riskModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close-button" onclick="closeModal()">&times;</button>
+            <h2 id="modalRiskTitle" class="modal-title"></h2>
+            <p id="modalRiskDescription" class="modal-description"></p>
+            <button id="generateRecommendationsBtn" class="generate-button">✨ Gerar Recomendações de Segurança</button>
+            <div id="loadingIndicator" class="loading-indicator">Gerando recomendações...</div>
+            <div id="recommendationsOutput" class="recommendations-output"></div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, controls;
+        let raycaster;
+        let mouse;
+        let riskObjects = []; // Array para armazenar todas as esferas de risco para raycasting
+        let areaLabels = []; // Array para armazenar os meshes das áreas e seus rótulos HTML
+
+        // Get references to modal elements
+        const riskModal = document.getElementById('riskModal');
+        const modalRiskTitle = document.getElementById('modalRiskTitle');
+        const modalRiskDescription = document.getElementById('modalRiskDescription');
+        const generateRecommendationsBtn = document.getElementById('generateRecommendationsBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const recommendationsOutput = document.getElementById('recommendationsOutput');
+        const labelsContainer = document.getElementById('labels-container'); // Referência ao novo contêiner de rótulos
+
+        let currentRiskDescription = ''; // Para armazenar a descrição do risco para a chamada da LLM
+
+        // Function to open the modal
+        function openModal(riskType, riskDescription) {
+            modalRiskTitle.textContent = `Risco: ${riskType}`;
+            modalRiskDescription.textContent = `Descrição: ${riskDescription}`;
+            currentRiskDescription = riskDescription; // Store for LLM call
+            recommendationsOutput.textContent = ''; // Clear previous recommendations
+            loadingIndicator.style.display = 'none'; // Hide loading indicator
+            riskModal.classList.add('show');
+        }
+
+        // Function to close the modal
+        function closeModal() {
+            riskModal.classList.remove('show');
+        }
+
+        // Initialize the 3D scene
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f4f8); // Cor de fundo da cena
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / (window.innerHeight - 100), 0.1, 1000);
+            camera.position.set(0, 50, 100); // Posição inicial da câmera
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight - 100); // Ajusta ao tamanho da tela
+            document.getElementById('scene-container').appendChild(renderer.domElement);
+
+            // Controls (OrbitControls for camera movement)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Ativa suavização
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 20;
+            controls.maxDistance = 200;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040); // Luz ambiente
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Luz direcional
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+
+            // Raycaster for object picking (clicking)
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Add event listener for mouse clicks
+            renderer.domElement.addEventListener('click', onCanvasClick, false);
+            // Add event listener for touch taps
+            renderer.domElement.addEventListener('touchend', onCanvasTouchEnd, false);
+
+            // Create Lab Areas (simplified boxes)
+            createLabAreas();
+
+            // Handle window resizing
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        // Function to handle window resizing
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / (window.innerHeight - 100);
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight - 100);
+        }
+
+        // Function to create lab areas and risks
+        function createLabAreas() {
+            // Define colors for risks
+            const riskColors = {
+                'Químico': 0xef4444,    // Vermelho
+                'Biológico': 0xa16207,  // Marrom
+                'Ergonômico': 0xfacc15, // Amarelo
+                'Mecânico/Acidente': 0x3b82f6, // Azul
+                'Físico': 0x22c55e     // Verde
+            };
+
+            // Helper function to create a lab area box
+            function addArea(width, height, depth, x, y, z, name) {
+                const geometry = new THREE.BoxGeometry(width, height, depth);
+                const material = new THREE.MeshPhongMaterial({
+                    color: 0xe2e8f0, // Cor de fundo da área
+                    transparent: true,
+                    opacity: 0.3, // Semi-transparente
+                    wireframe: false // Não wireframe
+                });
+                const area = new THREE.Mesh(geometry, material);
+                area.position.set(x, y, z);
+                scene.add(area);
+
+                // Add dashed lines for borders (simplified for 3D)
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x94a3b8 }));
+                area.add(line);
+
+                // Create HTML label for the area
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'area-label';
+                labelDiv.textContent = name;
+                labelsContainer.appendChild(labelDiv);
+
+                // Store reference to mesh and its label
+                areaLabels.push({ mesh: area, label: labelDiv });
+
+                return area;
+            }
+
+            // Helper function to add a risk sphere
+            function addRisk(x, y, z, type, description, size = 'medium') {
+                let radius;
+                if (size === 'small') radius = 2;
+                else if (size === 'large') radius = 4;
+                else radius = 3; // medium
+
+                const geometry = new THREE.SphereGeometry(radius, 32, 32);
+                const material = new THREE.MeshPhongMaterial({ color: riskColors[type], opacity: 0.9, transparent: true });
+                const riskSphere = new THREE.Mesh(geometry, material);
+                riskSphere.position.set(x, y, z);
+                riskSphere.userData = { type: type, description: description }; // Store data for modal
+                scene.add(riskSphere);
+                riskObjects.push(riskSphere); // Add to array for raycasting
+            }
+
+            // --- Layout do Laboratório (coordenadas aproximadas) ---
+            // Tamanho geral do laboratório para escala
+            const labWidth = 100;
+            const labDepth = 80;
+            const labHeight = 20; // Altura dos cômodos
+
+            // Entrada Principal
+            addArea(25, labHeight, 20, -labWidth / 2 + 12.5, 0, labDepth / 2 - 10, "Entrada Principal");
+            addRisk(-labWidth / 2 + 10, 0, labDepth / 2 - 5, "Ergonômico", "Mesas de aço inox com cadeiras de madeira desniveladas", "medium");
+            addRisk(-labWidth / 2 + 15, 0, labDepth / 2 - 15, "Mecânico/Acidente", "Porta e acesso destruídos por objetos", "medium");
+
+            // Corredor
+            addArea(20, labHeight, 20, -labWidth / 2 + 35, 0, labDepth / 2 - 10, "Corredor");
+
+            // Área de Preparo e Análise de Amostras (maior)
+            addArea(60, labHeight, 40, -labWidth / 2 + 30, 0, labDepth / 2 - 40, "Área de Preparo e Análise de Amostras");
+            // Bancadas (simplificadas como caixas)
+            addArea(40, 2, 10, -labWidth / 2 + 30, -labHeight / 2 + 1, labDepth / 2 - 30, "Bancada");
+            addArea(30, 2, 10, -labWidth / 2 + 20, -labHeight / 2 + 1, labDepth / 2 - 50, "Bancada");
+            addArea(40, 2, 10, -labWidth / 2 + 40, -labHeight / 2 + 1, labDepth / 2 - 60, "Bancada");
+
+            addRisk(-labWidth / 2 + 10, 0, labDepth / 2 - 35, "Químico", "Substâncias sem identificação", "large");
+            addRisk(-labWidth / 2 + 20, 0, labDepth / 2 - 45, "Químico", "Manuseio de reagentes", "medium");
+            addRisk(-labWidth / 2 + 40, 0, labDepth / 2 - 55, "Biológico", "Manipulação de amostras", "large");
+            addRisk(-labWidth / 2 + 30, 0, labDepth / 2 - 40, "Ergonômico", "Posição inadequada ao pipetar", "small");
+            addRisk(-labWidth / 2 + 50, 0, labDepth / 2 - 30, "Mecânico/Acidente", "Quebra de vidrarias", "medium");
+
+            // Área de Esterilização
+            addArea(30, labHeight, 20, labWidth / 2 - 15, 0, labDepth / 2 - 30, "Área de Esterilização");
+            // Autoclave
+            addArea(5, 5, 5, labWidth / 2 - 15, -labHeight / 2 + 2.5, labDepth / 2 - 30, "Autoclave");
+            addRisk(labWidth / 2 - 15, 0, labDepth / 2 - 25, "Físico", "Temperaturas extremas", "large");
+            addRisk(labWidth / 2 - 10, 0, labDepth / 2 - 35, "Mecânico/Acidente", "Risco de queimaduras", "small");
+
+            // Área de Armazenamento de Reagentes e Amostras
+            addArea(30, labHeight, 30, labWidth / 2 - 15, 0, labDepth / 2 - 60, "Área de Armazenamento de Reagentes e Amostras");
+            // Prateleiras
+            addArea(5, 15, 10, labWidth / 2 - 25, 0, labDepth / 2 - 60, "Prateleira");
+            addArea(5, 15, 10, labWidth / 2 - 5, 0, labDepth / 2 - 60, "Prateleira");
+            addRisk(labWidth / 2 - 15, 0, labDepth / 2 - 50, "Químico", "Substâncias sem identificação", "large");
+            addRisk(labWidth / 2 - 20, 0, labDepth / 2 - 65, "Biológico", "Armazenamento de amostras biológicas sem identificação", "medium");
+            addRisk(labWidth / 2 - 10, 0, labDepth / 2 - 55, "Químico", "Itens não separados e sem etiquetas de identificação", "medium");
+            addRisk(labWidth / 2 - 18, 0, labDepth / 2 - 68, "Mecânico/Acidente", "Desorganização que pode causar quedas de materiais", "small");
+
+
+            // Área de Biossegurança
+            addArea(25, labHeight, 30, labWidth / 2 - 40, 0, labDepth / 2 - 60, "Área de Biossegurança");
+            addRisk(labWidth / 2 - 40, 0, labDepth / 2 - 50, "Biológico", "Alto risco de manipulação de microrganismos patogênicos", "large");
+
+            // Área de Limpeza e Descarte
+            addArea(35, labHeight, 25, -labWidth / 2 + 17.5, 0, -labDepth / 2 + 12.5, "Área de Limpeza e Descarte");
+            addRisk(-labWidth / 2 + 10, 0, -labDepth / 2 + 5, "Químico", "Produtos de limpeza corrosivos", "medium");
+            addRisk(-labWidth / 2 + 25, 0, -labDepth / 2 + 10, "Biológico", "Contato com resíduos biológicos", "medium");
+            addRisk(-labWidth / 2 + 15, 0, -labDepth / 2 + 20, "Mecânico/Acidente", "Materiais perfurocortantes em local inadequado", "large");
+            addRisk(-labWidth / 2 + 28, 0, -labDepth / 2 + 18, "Mecânico/Acidente", "Coletor de materiais perfurocortantes em local irregular", "large");
+            addRisk(-labWidth / 2 + 30, 0, -labDepth / 2 + 5, "Químico", "Proximidade de produtos inflamáveis", "medium");
+
+
+            // Bancadas de Estudo/Trabalho
+            addArea(45, labHeight, 25, -labWidth / 2 + 65, 0, -labDepth / 2 + 12.5, "Bancadas de Estudo/Trabalho");
+            // Bancadas
+            addArea(30, 2, 10, -labWidth / 2 + 65, -labHeight / 2 + 1, -labDepth / 2 + 10, "Bancada");
+            addArea(30, 2, 10, -labWidth / 2 + 60, -labHeight / 2 + 1, -labDepth / 2 + 20, "Bancada");
+            addRisk(-labWidth / 2 + 50, 0, -labDepth / 2 + 5, "Físico", "Baixa climatização", "small");
+            addRisk(-labWidth / 2 + 70, 0, -labDepth / 2 + 10, "Ergonômico", "Mobiliário desconfortável (mesas de aço inox e cadeiras de madeira)", "medium");
+            addRisk(-labWidth / 2 + 60, 0, -labDepth / 2 + 20, "Mecânico/Acidente", "Tomada com fios expostos", "large");
+
+            // Sanitários/Vestiários
+            addArea(25, labHeight, 30, labWidth / 2 - 12.5, 0, -labDepth / 2 + 15, "Sanitários/Vestiários");
+            // Compartimentos (simplificados)
+            addArea(10, labHeight - 5, 10, labWidth / 2 - 18, 0, -labDepth / 2 + 10, "Masc.");
+            addArea(10, labHeight - 5, 10, labWidth / 2 - 7, 0, -labDepth / 2 + 10, "Fem.");
+            addRisk(labWidth / 2 - 15, 0, -labDepth / 2 + 5, "Mecânico/Acidente", "Chuveiro de emergência mal posicionado/destruído", "large");
+            addRisk(labWidth / 2 - 10, 0, -labDepth / 2 + 15, "Mecânico/Acidente", "Rampas de acesso", "large");
+            addRisk(labWidth / 2 - 20, 0, -labDepth / 2 + 20, "Mecânico/Acidente", "Portas destruídas", "large");
+            addRisk(labWidth / 2 - 15, 0, -labDepth / 2 + 25, "Mecânico/Acidente", "Pia que obstrui a passagem", "large");
+            addRisk(labWidth / 2 - 18, 0, -labDepth / 2 + 8, "Mecânico/Acidente", "Chuveiro de emergência destruído", "large");
+            addRisk(labWidth / 2 - 7, 0, -labDepth / 2 + 18, "Mecânico/Acidente", "Acesso restrito ao chuveiro de emergência por pia", "medium");
+        }
+
+        // Handle mouse click on canvas
+        function onCanvasClick(event) {
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
+            mouse.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(riskObjects);
+
+            if (intersects.length > 0) {
+                const clickedObject = intersects[0].object;
+                const riskType = clickedObject.userData.type;
+                const riskDescription = clickedObject.userData.description;
+                openModal(riskType, riskDescription);
+            }
+        }
+
+        // Handle touch tap on canvas
+        function onCanvasTouchEnd(event) {
+            // Prevent mouse event from firing after touch
+            event.preventDefault();
+
+            // Get the touch position
+            const touch = event.changedTouches[0];
+
+            // Calculate touch position in normalized device coordinates (-1 to +1)
+            mouse.x = (touch.clientX / renderer.domElement.clientWidth) * 2 - 1;
+            mouse.y = -(touch.clientY / renderer.domElement.clientHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(riskObjects);
+
+            if (intersects.length > 0) {
+                const clickedObject = intersects[0].object;
+                const riskType = clickedObject.userData.type;
+                const riskDescription = clickedObject.userData.description;
+                openModal(riskType, riskDescription);
+            }
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Only required if controls.enableDamping or controls.autoRotate are set to true
+
+            // Update HTML labels position
+            areaLabels.forEach(item => {
+                const vector = new THREE.Vector3();
+                item.mesh.getWorldPosition(vector); // Get world position of the mesh
+                vector.project(camera); // Project 3D position to 2D screen coordinates
+
+                // Convert normalized device coordinates to pixel coordinates
+                const x = (vector.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
+                const y = (-vector.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+
+                // Adjust for canvas offset relative to the viewport
+                const canvasRect = renderer.domElement.getBoundingClientRect();
+                item.label.style.left = `${x + canvasRect.left}px`;
+                item.label.style.top = `${y + canvasRect.top}px`;
+
+                // Optional: Hide labels if behind camera or too far
+                const distance = camera.position.distanceTo(item.mesh.position);
+                // Check if the object is within the camera's frustum and not too far
+                if (vector.z > 1 || distance > 150) { // vector.z > 1 means it's behind the camera
+                    item.label.style.display = 'none';
+                } else {
+                    item.label.style.display = 'block';
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Event listener for the "Generate Recommendations" button
+        generateRecommendationsBtn.addEventListener('click', async () => {
+            loadingIndicator.style.display = 'block'; // Show loading indicator
+            recommendationsOutput.textContent = ''; // Clear previous output
+
+            const prompt = `Forneça recomendações de segurança e estratégias de mitigação detalhadas para o seguinte risco em um ambiente de laboratório: "${currentRiskDescription}". Inclua medidas preventivas, ações em caso de incidente e boas práticas.`;
+
+            // Gemini API call
+            let chatHistory = [];
+            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+            const payload = { contents: chatHistory };
+            const apiKey = ""; // Leave this as-is; Canvas will provide the API key at runtime.
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    recommendationsOutput.textContent = text;
+                } else {
+                    recommendationsOutput.textContent = 'Não foi possível gerar recomendações. Tente novamente.';
+                    console.error('Unexpected API response structure:', result);
+                }
+            } catch (error) {
+                recommendationsOutput.textContent = 'Ocorreu um erro ao conectar com a API. Verifique sua conexão ou tente novamente mais tarde.';
+                console.error('Error calling Gemini API:', error);
+            } finally {
+                loadingIndicator.style.display = 'none'; // Hide loading indicator
+            }
+        });
+
+        // Start the 3D application when the window loads
+        window.onload = function () {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
